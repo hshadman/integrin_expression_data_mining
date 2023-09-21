@@ -1,0 +1,231 @@
+```{r}
+#MISTAKE!! included normal patients in here as well. check PRAD as well
+library(data.table);
+library(dplyr);
+library(RegParallel);
+library(survminer)
+```
+
+```{r}
+dataExpr = read.csv("01_voomExpr.csv");
+rownames(dataExpr) = dataExpr$X;
+dataExpr = dplyr::select(dataExpr,starts_with("TCGA"))
+head(dataExpr[1:4]);
+```
+
+
+```{r}
+genes_toKeep = read.csv("02_GSandMM.csv");
+head(genes_toKeep[1:5]);
+
+```
+```{r}
+
+```
+
+
+```{r}
+#genes_toKeep_list = genes_toKeep %>% filter(moduleColor == "yellow");
+genes_toKeep_list = dplyr::filter(genes_toKeep,grepl("ITG",X))
+ignore_integrins=c("ITGB3BP","ITGB1BP1")
+genes_toKeep_list = genes_toKeep_list[!genes_toKeep_list$X %in% ignore_integrins,] #this line not in STAR protocols. remove itg
+genes_toKeep_list = genes_toKeep_list$geneSymbol;
+
+dataExpr = dataExpr[genes_toKeep_list,];
+dataExpr
+```
+
+```{r}
+
+```
+
+
+```{r}
+dataExpr = as.data.frame(t(dataExpr));
+dataExpr = as.data.frame(scale(dataExpr));
+head(dataExpr[1:4]);
+```
+
+```{r}
+highExpr = 0.674;
+lowExpr = -0.674;
+dataExpr = as.data.frame(ifelse(dataExpr <= lowExpr,1,
+                                ifelse(dataExpr >=highExpr,2,NA)));
+dataExpr[] = lapply(dataExpr,factor);
+dataExpr$SampleID = rownames(dataExpr)
+```
+
+```{r}
+dataSurv = as.data.frame(fread("TCGA_survival_data"));
+dataSurv$sample = gsub("-",".",dataSurv$sample);
+dataSurv
+```
+```{r}
+dataJoined = merge(dataSurv,dataExpr,by.x="sample",by.y = "SampleID");
+```
+
+```{r}
+dataJoined
+```
+
+
+```{r}
+temp4Hist = (dataJoined$OS.time)/365;
+
+hist(temp4Hist,
+     breaks = seq(from = 0, to = 24, by = 1),
+     xaxt = 'n',
+     xlab = "Years",
+     main = "Histogram of OS.time");
+axis(side = 1,
+     at = seq(0,24,1),
+     labels = seq(0,24,1));
+```
+
+```{r}
+dataJoined = subset(dataJoined,OS.time <= 3650)
+```
+
+```{r}
+
+```
+
+
+```{r}
+res = RegParallel(data = dataJoined,
+                  formula = 'Surv(OS.time, OS) ~ [*]',
+                  FUN = function(formula,data) coxph(formula = formula,
+                                                     data = data,
+                                                     ties = "breslow",
+                                                     singular.ok = TRUE),
+                  FUNtype = 'coxph',
+                  variables = colnames(dataJoined)[10:ncol(dataJoined)],
+                  blocksize = length(colnames(dataJoined)[10:ncol(dataJoined)]),
+                  cores = 2,
+                  nestedParallel = FALSE,
+                  conflevel = 95);
+res = res[!is.na(res$P), ];
+res = res[order(res$LogRank, decreasing = FALSE)];
+head(res);
+```
+
+```{r}
+write.csv(res,"04_Survival.csv")
+```
+
+```{r}
+dataDEG = read.csv("01_DEGsTreat.csv");
+head(dataDEG)
+```
+```{r}
+dataCytoscape = merge(res, dataDEG, by.x = "Variable",by.y = "X");
+dataCytoscape = dplyr::select(dataCytoscape, Variable, LogRank,logFC,adj.P.Val);
+head(dataCytoscape)
+```
+```{r}
+write.csv(dataCytoscape, "04_CytoscapeInput.csv")
+```
+
+```{r}
+res[order(res$LogRank, decreasing = FALSE),]
+```
+
+
+```{r}
+shortList = subset(dataCytoscape,
+                   LogRank < 0.05 & adj.P.Val <0.05);
+shortList
+```
+
+```{r}
+subset(res[grep("ITG",res$Variable),],LogRank<0.05 )
+#integrins have significant effect on survival it seems
+```
+
+
+```{r}
+subset(dataDEG[grep("ITG",dataDEG$X),][,c("X","adj.P.Val")],adj.P.Val<=0.05)
+#however integrins are differentially expressed as i showed earlier
+```
+
+```{r}
+geneSL = shortList$Variable;
+for(i in 1:length(geneSL)){
+  fit = survfit(as.formula(paste0("Surv(OS.time, OS) ~",geneSL[i])),
+                data = dataJoined)
+  print(
+    ggsurvplot(fit,
+               pval = TRUE,
+               risk.table = TRUE,
+               break.time.by = 365,
+               ggtheme = theme_bw(),
+               palette = c("blue","red"),
+               xlim = c(0,3650),
+               risk.table.y.text.col = TRUE,
+               risk.table.y.text = FALSE,
+               tables.theme = theme_cleantable(),
+               tables.height = 0.15,
+               xlab = "Days",
+               font.x = c(12, "bold"),
+               ylab = "Survival Probability",
+               font.y = c(12,"bold"),
+               legend.labs = c("Low-expression","High-expression"),
+               font.legend = c(12,"bold"),
+               legend.title = geneSL[i])
+  )
+}
+```
+
+```{r}
+shortList_survonly = subset(dataCytoscape,
+                   LogRank < 0.05);
+
+```
+
+
+```{r}
+geneSL = shortList_survonly$Variable;
+for(i in 1:length(geneSL)){
+  fit = survfit(as.formula(paste0("Surv(OS.time, OS) ~",geneSL[i])),
+                data = dataJoined)
+  print(
+    ggsurvplot(fit,
+               pval = TRUE,
+               risk.table = TRUE,
+               break.time.by = 365,
+               ggtheme = theme_bw(),
+               palette = c("blue","red"),
+               xlim = c(0,3650),
+               risk.table.y.text.col = TRUE,
+               risk.table.y.text = FALSE,
+               tables.theme = theme_cleantable(),
+               tables.height = 0.15,
+               xlab = "Days",
+               font.x = c(12, "bold"),
+               ylab = "Survival Probability",
+               font.y = c(12,"bold"),
+               legend.labs = c("Low-expression","High-expression"),
+               font.legend = c(12,"bold"),
+               legend.title = geneSL[i])
+  )
+}
+```
+
+
+```{r}
+122+119
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,520 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(BiocManager)
+library(tidyr)
+```
+
+
+```{r}
+BiocManager::install('WGCNA')
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+```{r}
+library(WGCNA);
+library(dplyr)
+options(stringsAsFactors = FALSE);
+dataExpr0=read.csv("01_voomExpr.csv");
+head(dataExpr0[1:6])
+```
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+```{r}
+dataExpr1 = dataExpr0 %>% select(starts_with("TCGA"));
+head(dataExpr1[1:6])
+```
+```{r}
+rownames(dataExpr1) = dataExpr0$X;
+head(dataExpr1[1:6])
+```
+
+```{r}
+dataExpr1$Count = rowSums(dataExpr1<0);
+table(dataExpr1$Count)
+```
+```{r}
+dataExpr2 = dataExpr1 %>% filter(Count == 0);
+dataExpr2$Count = NULL
+```
+
+```{r}
+dataExpr3 = as.data.frame(t(dataExpr2));
+```
+
+```{r}
+gsg = goodSamplesGenes(dataExpr3,verbose =3);
+gsg$allOK
+```
+
+```{r}
+{
+  if(sum(!gsg$goodGenes)>0)
+    printFlush(paste("Removing genes:",paste(names(dataExpr3)[!gsg$goodGenes],collapse = ", ")));
+  if(sum(!gsg$goodSamples)>0)
+    printFlush(paste("Removing samples:",paste(rownames(dataExpr3)[!gsg$goodSamples],collapse = ", ")));
+  dataExpr3 = dataExpr3[gsg$goodSamples, gsg$goodGenes]
+}
+```
+
+```{r}
+sampleTree = hclust(dist(dataExpr3), method = "average");
+plot(sampleTree,
+     main = "Sample Clustering to Detect Sample Outliers",
+     sub ="",
+     xlab = "",
+     cex=0.6)
+```
+
+```{r}
+par(mfrow=c(1,2));
+byHist = hist(sampleTree$height,
+  main = "Histogram of Height",
+  xlab = "Height")
+
+```
+
+```{r}
+dataExpr = dataExpr3
+```
+
+```{r}
+dataTraitALL = read.csv("00_ClinTraits.csv");
+head(dataTraitALL)
+```
+
+```{r}
+dataTraitALL$sampleID = gsub("-",".",dataTraitALL$sampleID);
+head(dataTraitALL)
+```
+
+```{r}
+exprRows = rownames(dataExpr);
+traitRows = match(exprRows, dataTraitALL$sampleID);
+dataTrait = dataTraitALL[traitRows, -1];
+head(dataTrait)
+```
+
+```{r}
+dataTrait = drop_na(dataTrait,sampleID);
+rownames(dataTrait) = dataTrait$sampleID;
+head(dataTrait)
+
+
+```
+
+```{r}
+dataTrait = select(dataTrait, -sampleID);
+head(dataTrait)
+```
+```{r}
+dataExpr = subset(dataExpr,row.names(dataExpr) %in% row.names(dataTrait))
+
+```
+
+```{r}
+nSamples = nrow(dataExpr);
+nSamples #Displays number of samples retained after removal of sample outliers.
+```
+
+```{r}
+sampleTree3 = hclust(dist(dataExpr), method = 'average');
+traitColors = labels2colors(dataTrait, naColor="green")
+#traitColors = numbers2colors(dataTrait, signed = FALSE)
+```
+
+```{r}
+
+```
+
+```{r}
+print(labels2colors(unique(dataTrait), naColor="green"))
+print(unique(dataTrait))
+```
+
+
+```{r}
+traitColors
+```
+
+```{r}
+dataTrait
+```
+
+
+```{r}
+plotDendroAndColors(sampleTree3,
+                    traitColors,
+                    groupLabels = names(dataTrait),
+                    addGuide = TRUE,
+                    main = "Sample Dendrogram in Relation to Traits",
+                    autoColorHeight = FALSE,
+                    colorHeight = 0.1)
+#legend(x=0,y=0.9,
+#       legend = unique(dataTrait), bty= 'n',
+#       col = labels2colors(unique(dataTrait), naColor="green"))
+
+```
+```{r}
+save(dataExpr,dataTrait,file = "02_WGCNAdatainput.RData")
+```
+
+```{r}
+powers = c(c(1:10), seq(from = 12, to =20, by =2));
+sft = pickSoftThreshold(dataExpr,powerVector = powers,
+                        networkType = 'signed',
+                        verbose=5,
+                        blockSize=20000)
+```
+
+```{r}
+plot(sft$fitIndices[,1],-sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     xlab="Soft Threshold (power)",
+     ylab = "Scale Free Topology Model Fit, signed R^2",
+     type = "n",
+     main = paste("Scale Independence"));
+text(sft$fitIndices[,1],-sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     labels = powers,
+     col = "red");
+abline(h =0.90, col="red")
+```
+
+```{r}
+plot(sft$fitIndices[,1],sft$fitIndices[,5],
+     xlab="Soft Threshold Power",
+     ylab = "Mean Connectivity",
+     type ="n",
+     main = paste("Mean Connectivity"));
+text(sft$fitIndices[,1],sft$fitIndices[,5],
+     labels = powers,
+     col="red")
+```
+
+```{r}
+k = softConnectivity(dataExpr,
+                     type="signed",
+                     power=10,
+                     blockSize=20000,
+                     verbose = 2);
+```
+
+```{r}
+sum(is.na(k))
+```
+
+```{r}
+par(mfrow=c(1,2));
+byHist=hist(k)
+```
+
+```{r}
+scaleFreePlot(k,main="Scale Free Plot (Pearson), sft=10\n")
+```
+
+```{r}
+softPower = 10;
+adjacency = adjacency(dataExpr,
+                      power = softPower,
+                      type="signed")
+```
+
+```{r}
+TOM = TOMsimilarity(adjacency,
+                    TOMType = "signed",
+                    verbose=5)
+```
+
+```{r}
+dissTOM = 1-TOM
+```
+
+```{r}
+geneTree = hclust(as.dist(dissTOM),
+                  method="average");
+plot(geneTree,
+     xlab="",
+     sub="",
+     main="Gene Clustering",
+     labels =FALSE,
+     hang=0.04)
+```
+
+```{r}
+minModuleSize = 100;
+dynamicMods = cutreeDynamic(dendro = geneTree,
+                            distM = dissTOM,
+                            method = "hybrid",
+                            deepSplit = 4,
+                            pamStage = TRUE,
+                            pamRespectsDendro = FALSE,
+                            minClusterSize = minModuleSize,
+                            verbose=4);
+```
+
+```{r}
+table(dynamicMods)
+```
+
+```{r}
+dynamicColors = labels2colors(dynamicMods);
+plotDendroAndColors(geneTree,
+                    dynamicColors,
+                    "Dynamic Tree Cut",
+                    dendroLabels = FALSE, hang= 0.03,
+                    addGuide = TRUE, guideHang = 0.05,
+                    main = "Gene Dendrogram and Module Colors")
+```
+
+```{r}
+MEList = moduleEigengenes(dataExpr,
+                          colors = dynamicColors)
+```
+
+```{r}
+MEs = MEList$eigengenes
+```
+
+```{r}
+save(MEs, dynamicMods, dynamicColors, geneTree,
+     file = "02_WGCNAmodAssigned.RData")
+```
+
+```{r}
+nSamples
+```
+
+
+```{r}
+moduleTraitCor = cor(MEs, dataTrait, use = "p");
+ moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
+ textMatrix = paste(signif(moduleTraitCor, 2), "  (",
+                    signif(moduleTraitPvalue, 1), ")", sep = "");
+ dim(textMatrix) = dim(moduleTraitCor);
+ par(mar = c(6, 8.5, 3, 3));
+ labeledHeatmap(Matrix = moduleTraitCor,
+                xLabels = names(dataTrait),
+                yLabels = names(MEs),
+                ySymbols = names(MEs),
+                colorLabels = FALSE,
+                colors = blueWhiteRed(50),
+                textMatrix = textMatrix,
+                setStdMargins = FALSE,
+                cex.text = .65,
+                zlim = c(-1,1),
+                main = paste("Module-Trait Relationships"))
+```
+```{r}
+geneTraitSignificance = as.data.frame(cor(dataExpr, dataTrait$pathologicstage, use = "p"));
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance), nSamples));
+names(geneTraitSignificance) = "GS_pathologicstage";
+names(GSPvalue) = "p.GS_pathologicstage"
+```
+
+```{r}
+modNames = substring(names(MEs), 3);
+ geneModuleMembership = as.data.frame(cor(dataExpr, MEs, use = "p"));
+ MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), nSamples));
+ names(geneModuleMembership) = paste("MM", modNames, sep="");
+ names(MMPvalue) = paste("p.MM", modNames, sep="")
+```
+
+```{r}
+#pick a module color
+module = "magenta";
+column = match(module, modNames);
+moduleGenes = dynamicColors == module;
+verboseScatterplot(geneModuleMembership[moduleGenes, column],
+                  geneTraitSignificance[moduleGenes, 1],
+                  xlab = paste("Module Membership in", module, "Module"),
+                  ylab = "Gene Significance for Pathologic Stage",
+                  main = paste ("Module Membership vs.Gene Significance\n"),
+                  cex.main = 1,
+                  cex.lab = 1,
+                  cex.axis = 1,
+                  col = module)
+```
+
+```{r}
+annot = read.csv(file = "zz_gencode.v23.annotation.csv",sep="\t");
+ dim(annot);
+```
+
+```{r}
+head(annot)
+```
+```{r}
+ probes = names(dataExpr);
+probes2annot = match(probes, annot$gene);
+sum(is.na(probes2annot)); #Checks for number of probes without annotation. Should be zero.
+```
+
+```{r}
+ExportPrep = data.frame(geneSymbol = probes,
+                         geneSymbolCheck = annot$gene[probes2annot],
+                         ENSG = annot$id[probes2annot],
+                         moduleColor = dynamicColors,
+                         geneTraitSignificance,
+                         GSPvalue);
+ modOrder = order(-(cor(MEs, dataTrait$pathologicstage, use = "p")));
+for (mod in 1:ncol(geneModuleMembership)) {
+   oldNames = names(ExportPrep)
+   ExportPrep = data.frame(ExportPrep, geneModuleMembership[, modOrder[mod]],
+                          MMPvalue[, modOrder[mod]]);
+   names(ExportPrep) = c(oldNames, paste("MM.", modNames[modOrder[mod]], sep=""),
+                        paste("p.MM.", modNames[modOrder[mod]], sep=""))
+}
+ geneOrder = order(ExportPrep$moduleColor, -abs(ExportPrep$GS_pathologicstage));
+
+ ExportFinal = ExportPrep[geneOrder, ]
+```
+
+```{r}
+write.csv(ExportFinal, file = "02_GSandMM.csv")
+```
+
+
+```{r}
+genesMatchcolors <- cbind(dynamicColors, names(dataExpr))
+genesMatchNumbers <- cbind(dynamicMods,names(dataExpr))
+```
+
+```{r}
+table(dynamicMods)
+```
+
+
+```{r}
+table(genesMatchcolors[,1])
+```
+
+for (color in unique(genesMatchNumbers[,1]))
+```{r}
+{print(color)
+  print(dim(subset(genesMatchNumbers,dynamicMods==color))[1])
+  print(subset(genesMatchNumbers,dynamicMods==color)[grep("ITG",subset(genesMatchNumbers,dynamicMods==color))])
+}
+```
+
+
+```{r}
+write.csv(genesMatchNumbers, file="genesMatchNumbers.csv")
+```
+
+```{r}
+genesMatchNumbers
+```
+```{r}
+p.values = corPvalueStudent(cor(dataTrait$pathologicstage,datME,use="p"),nSamples = length(dataTrait$pathologicstage))
+```
+
+```{r}
+geneModuleMembership = as.data.frame(cor(dataExpr, datME, use = "p"));
+MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), length(dataTrait$pathologicstage)));
+geneTraitSignificance = as.data.frame(cor(dataExpr, dataTrait$pathologicstage, use = "p"));
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance), length(dataTrait$pathologicstage)));
+```
+
+```{r}
+datKME = signedKME(dataExpr, datME, outputColumnName = "kME")
+```
+
+
+```{r}
+labels2colors(unique(dynamicMods))
+```
+
+```{r}
+dataExpr
+```
+```{r}
+table(dynamicMods)
+```
+
+
+```{r}
+# Define numbers of genes and samples
+nGenes = ncol(dataExpr);
+nSamples = nrow(dataExpr);
+# Recalculate MEs with color labels
+MEs0 = moduleEigengenes(dataExpr, dynamicColors)$eigengenes
+MEs = orderMEs(MEs0)
+moduleTraitCor = cor(MEs, dataTrait, use = "p");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
+```
+
+```{r}
+sizeGrWindow(10,6)
+# Will display correlations and their p-values
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
+signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(6, 8.5, 3, 3));
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = moduleTraitCor,
+xLabels = names(dataTrait),
+yLabels = names(MEs),
+ySymbols = names(MEs),
+colorLabels = FALSE,
+colors = greenWhiteRed(50),
+textMatrix = textMatrix,
+setStdMargins = FALSE,
+cex.text = 0.5,
+zlim = c(-1,1),
+main = paste("Module-trait relationships"))
+```
+```{r}
+stage = as.data.frame(dataTrait$pathologicstage);
+names(stage)  = "stage"
+
+modNames = substring(names(MEs),3)
+
+geneModuleMembership = as.data.frame(cor(dataExpr,MEs,use="p"));
+MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership),nSamples))
+```
+
+```{r}
+names(geneModuleMembership) = paste("MM",modNames,sep="");
+names(MMPvalue) = paste("p.MM",modNames,sep="");
+geneTraitSignificance = as.data.frame(cor(dataExpr, stage, use = "p"));
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance), nSamples));
+names(geneTraitSignificance) = paste("GS.", names(stage), sep="");
+names(GSPvalue) = paste("p.GS.", names(stage), sep="");
+```
+
+```{r}
+annot = read.table(file = "zz_gencode.v23.annotation.csv",sep="\t",header=TRUE)
+dim(annot)
+names(annot)
+probes = names(dataExpr);
+probes2annot = match(probes,annot$gene)
+sum(is.na(probes2annot))
+```
+
+```{r}
+ExportFinal
+```
+
+```{r}
+#METHODS S4 GEne ontology analysis for molecular mechanisms
+BiocManager::install("topGO")
+```
+
+```{r}
+library(data.table);
+library(grex);
+library(biomaRt);
+library(topGO);
+library(dplyr);
+library(ggplot2)
+```
+

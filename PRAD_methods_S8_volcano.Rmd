@@ -1,0 +1,80 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+
+```
+
+```{r}
+library(EnhancedVolcano);
+library(gtable);
+library(gridExtra)
+```
+
+```{r}
+dataExpr = read.csv("01_DEGsTreat_PRAD.csv");
+head(dataExpr[1:6])
+
+```
+```{r}
+itgExpr = dataExpr[grep("ITG",dataExpr$X),];
+sig_itgExpr=subset(itgExpr, (itgExpr$logFC < -0.58 & itgExpr$adj.P.Val < 0.05) |  (itgExpr$logFC > 0.58 & itgExpr$adj.P.Val < 0.05) );
+sig_itgExpr
+
+```
+
+```{r}
+keyvals = ifelse(dataExpr$logFC < -0.58 & dataExpr$adj.P.Val < 0.05, 'blue',
+                 ifelse(dataExpr$logFC > 0.58 & dataExpr$adj.P.Val < 0.05, 'red',
+                        'grey30'));
+keyvals[is.na(keyvals)] ='grey30';
+names(keyvals)[keyvals == 'red'] = 'Up-regulated';
+names(keyvals)[keyvals == 'blue'] = 'Down-regulated';
+names(keyvals)[keyvals == 'grey30'] = 'Not Significant'
+```
+
+
+```{r}
+p = EnhancedVolcano(dataExpr,
+                    lab = dataExpr$X,
+                    x = 'logFC',
+                    y = "adj.P.Val",
+                    selectLab = sig_itgExpr$X,
+                    xlim = c(-6,6),
+                    ylim = c(0,15),
+                    xlab = "Effect Size: log2 Fold Change",
+                    ylab = "Significance: -log(FDR)",
+                    axisLabSize = 14,
+                    pCutoff = 0.05,
+                    FCcutoff = 0.58,
+                    title ="PRAD TCGA normal vs Tumor",
+                    titleLabSize = 14,
+                    subtitle = NULL,
+                    caption = NULL,
+                    pointSize = 1.5,
+                    colCustom = keyvals,
+                    colAlpha = 0.5,
+                    legendPosition = 'none',
+                    legendLabSize = 12,
+                    legendIconSize = 3,
+                    gridlines.major = FALSE,
+                    gridlines.minor = FALSE,
+                    boxedLabels = TRUE,
+                    drawConnectors = TRUE,
+                    widthConnectors = 2.0,
+                    colConnectors = 'green');
+p
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
