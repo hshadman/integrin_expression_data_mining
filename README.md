@@ -5,4 +5,4 @@ this is a collaborative project. there are some contributions from other people 
 
 most of the code is in the branch 'master' 
 
-The project in this repository is available as a preprint: https://www.biorxiv.org/content/10.1101/2024.09.19.613933v1.article-metrics 
+The project in this repository is available as a preprint: https://www.biorxiv.org/content/10.1101/2024.09.19.613933v1
